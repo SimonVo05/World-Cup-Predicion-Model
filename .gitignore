@@ -1,0 +1,36 @@
+# Environment variables and credentials
+.env
+.env.*
+kaggle.json
+
+# Raw and processed data
+data/raw/*
+data/external/*
+data/processed/*
+
+# Keep directory structure
+!data/raw/.gitkeep
+!data/external/.gitkeep
+!data/processed/.gitkeep
+
+# Trained models
+models/*.pkl
+models/*.joblib
+models/*.pt
+models/*.pth
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
