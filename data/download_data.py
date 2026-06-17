@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import shutil # simplifying tasks like copying and removing directories in automation scripts
 import kagglehub
 
 
@@ -24,7 +25,12 @@ def download_datasets() -> None:
 
         path = kagglehub.dataset_download(dataset_id)
 
-        print(f"{name} downloaded to: {path}")
+        destination = output_directory / name
+        if destination.exists():
+            shutil.rmtree(destination)
+        shutil.copytree(path, destination)
+
+        print(f"{name} downloaded to: {destination}")
 
 
 if __name__ == "__main__":
