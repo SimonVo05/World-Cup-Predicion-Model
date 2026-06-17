@@ -1,0 +1,16 @@
+# Data handling
+pandas
+numpy
+
+# Machine learning
+scikit-learn
+
+# Data download
+kagglehub
+
+# Plotting / exploration
+matplotlib
+seaborn
+
+# Environment variables (for the football API key)
+python-dotenv
