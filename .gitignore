@@ -34,3 +34,9 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# data/raw
+fc26_players/
+fifa_rankings/
+international_elo/
+international_matches/
