@@ -82,7 +82,15 @@ df = pd.merge_asof(df, eloAway, on="date", by="away_team", direction="backward")
 df = df.dropna(subset=["home_elo", "away_elo"])
 
 # create a new feature for the difference in elo ratings between the home and away teams
-df["elo_diff"] = df["home_elo"] - df["away_elo"]
+df["eloDiff"] = df["home_elo"] - df["away_elo"]
 
 print("\nmatches with elo:", len(df))
-print(df[["date", "home_team", "away_team", "home_elo", "away_elo", "elo_diff", "result"]].tail())
+print(df[["date", "home_team", "away_team", "home_elo", "away_elo", "eloDiff", "result"]].tail())
+
+# average eloDiff for each outcome
+print("\naverage eloDiff for each result:")
+print(df.groupby("result")["eloDiff"].mean())
+
+df["eloBucket"] = pd.cut(df["eloDiff"], bins = [-2000, -100, -25, 25, 100, 2000], labels = ["away much stronger", "away stronger", "even", "home stronger", "home much stronger"])
+print("\nHome-win rate by matchup type:")
+print(df.groupby("eloBucket", observed = True)["result"].apply(lambda x: (x == "home_win").mean()))
