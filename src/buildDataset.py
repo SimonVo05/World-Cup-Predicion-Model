@@ -89,20 +89,28 @@ df = df[df["date"] >= "2000-01-01"].copy()
 
 
 # Match context
-df["neutralFlag"] = df["neutral"].astype(int)
+important_pattern = (
+    r"FIFA World Cup|World Cup qualification|"
+    r"UEFA Euro|Copa América|African Cup of Nations|"
+    r"AFC Asian Cup|Gold Cup|Nations League|"
+    r"Confederations Cup|play[- ]?off|knockout"
+)
 
-df["isFriendly"] = (
-    df["tournament"] == "Friendly"
-).astype(int)
+df["matchType"] = "regular_international"
 
-df["isWorldCup"] = (
-    df["tournament"] == "FIFA World Cup"
-).astype(int)
+df.loc[
+    df["tournament"] == "Friendly",
+    "matchType"
+] = "friendly"
 
-df["isWorldCupQualifier"] = (
-    df["tournament"]
-    .str.contains("World Cup qualification", case=False, na=False)
-).astype(int)
+df.loc[
+    df["tournament"].str.contains(
+        important_pattern,
+        case=False,
+        na=False
+    ),
+    "matchType"
+] = "important"
 
 print("\nmatches with elo:", len(df))
 print(df[["date", "home_team", "away_team", "home_elo", "away_elo", "eloDiff", "result"]].tail())
@@ -124,14 +132,9 @@ print(
             "date",
             "home_team",
             "away_team",
-            "home_elo",
-            "away_elo",
-            "eloDiff",
-            "neutralFlag",
-            "isFriendly",
-            "isWorldCup",
-            "isWorldCupQualifier",
+            "tournament",
+            "matchType",
             "result",
         ]
-    ].tail().to_string(index=False)
+    ].tail(10).to_string(index=False)
 )
