@@ -84,6 +84,26 @@ df = df.dropna(subset=["home_elo", "away_elo"])
 # create a new feature for the difference in elo ratings between the home and away teams
 df["eloDiff"] = df["home_elo"] - df["away_elo"]
 
+# Only matches from 2000
+df = df[df["date"] >= "2000-01-01"].copy()
+
+
+# Match context
+df["neutralFlag"] = df["neutral"].astype(int)
+
+df["isFriendly"] = (
+    df["tournament"] == "Friendly"
+).astype(int)
+
+df["isWorldCup"] = (
+    df["tournament"] == "FIFA World Cup"
+).astype(int)
+
+df["isWorldCupQualifier"] = (
+    df["tournament"]
+    .str.contains("World Cup qualification", case=False, na=False)
+).astype(int)
+
 print("\nmatches with elo:", len(df))
 print(df[["date", "home_team", "away_team", "home_elo", "away_elo", "eloDiff", "result"]].tail())
 
@@ -94,3 +114,24 @@ print(df.groupby("result")["eloDiff"].mean())
 df["eloBucket"] = pd.cut(df["eloDiff"], bins = [-2000, -100, -25, 25, 100, 2000], labels = ["away much stronger", "away stronger", "even", "home stronger", "home much stronger"])
 print("\nHome-win rate by matchup type:")
 print(df.groupby("eloBucket", observed = True)["result"].apply(lambda x: (x == "home_win").mean()))
+
+
+print("\nmatches with elo:", len(df))
+
+print(
+    df[
+        [
+            "date",
+            "home_team",
+            "away_team",
+            "home_elo",
+            "away_elo",
+            "eloDiff",
+            "neutralFlag",
+            "isFriendly",
+            "isWorldCup",
+            "isWorldCupQualifier",
+            "result",
+        ]
+    ].tail().to_string(index=False)
+)
