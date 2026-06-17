@@ -1,7 +1,43 @@
-import pandas as pd
 
 # load results
-results = pd.read_csv("data/raw/international_matches/results.csv")
+from pathlib import Path
+
+import pandas as pd
+
+
+# buildDataset.py is inside src, so parents[1] is the project folder
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_DIR = PROJECT_ROOT / "data" / "raw"
+
+
+def find_csv(folder_name: str, file_name: str) -> Path:
+    folder = RAW_DIR / folder_name
+    matches = list(folder.rglob(file_name))
+
+    if not matches:
+        raise FileNotFoundError(
+            f"Could not find {file_name} inside:\n{folder}\n\n"
+            f"Files currently inside that folder:\n"
+            + "\n".join(str(path) for path in folder.rglob("*"))
+        )
+
+    return matches[0]
+
+
+results_path = find_csv(
+    "international_matches",
+    "results.csv",
+)
+
+elo_path = find_csv(
+    "international_elo",
+    "eloratings.csv",
+)
+
+print("Loading results from:", results_path)
+print("Loading ELO ratings from:", elo_path)
+
+results = pd.read_csv(results_path)
 
 # drop matches that havent play
 results = results.dropna(subset=["home_score", "away_score"])
@@ -23,7 +59,7 @@ print(results[["date", "home_team", "away_team", "home_score", "away_score", "re
 print(results["result"].value_counts())
 
 # load elo and parse its messy dates
-elo = pd.read_csv("data/raw/international_elo/eloratings.csv")
+elo = pd.read_csv(elo_path)
 elo["date"] = pd.to_datetime(elo["date"], format="mixed")
 
 # find match dates
