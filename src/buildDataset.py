@@ -292,3 +292,8 @@ print(
         ]
     ].tail(10).to_string(index=False)
 )
+
+processed_dir = PROJECT_ROOT / "data" / "processed"
+processed_dir.mkdir(parents=True, exist_ok=True)
+df.to_csv(processed_dir / "matches.csv", index=False)
+print("\nsaved processed data to", processed_dir / "matches.csv")
