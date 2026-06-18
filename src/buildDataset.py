@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 
 # buildDataset.py is inside src, so parents[1] is the project folder
@@ -58,12 +59,156 @@ print(results.shape)
 print(results[["date", "home_team", "away_team", "home_score", "away_score", "result"]].head())
 print(results["result"].value_counts())
 
+
+def add_recent_features(matches: pd.DataFrame, window: int = 5) -> pd.DataFrame:
+    matches = matches.sort_values("date").reset_index(drop=True).copy()
+    matches["match_id"] = matches.index
+
+    # One row for each home-team performance
+    home_history = pd.DataFrame({
+        "match_id": matches["match_id"],
+        "date": matches["date"],
+        "team": matches["home_team"],
+        "goals_for": matches["home_score"],
+        "goals_against": matches["away_score"],
+        "side": "home",
+    })
+
+    # One row for each away-team performance
+    away_history = pd.DataFrame({
+        "match_id": matches["match_id"],
+        "date": matches["date"],
+        "team": matches["away_team"],
+        "goals_for": matches["away_score"],
+        "goals_against": matches["home_score"],
+        "side": "away",
+    })
+
+    team_history = pd.concat(
+        [home_history, away_history],
+        ignore_index=True,
+    )
+
+    team_history = team_history.sort_values(
+        ["team", "date", "match_id"]
+    ).reset_index(drop=True)
+
+    # 3 points for a win, 1 for a draw, 0 for a loss
+    team_history["points"] = np.select(
+        [
+            team_history["goals_for"] > team_history["goals_against"],
+            team_history["goals_for"] == team_history["goals_against"],
+        ],
+        [3, 1],
+        default=0,
+    )
+
+    team_history["goalDiff"] = (
+        team_history["goals_for"]
+        - team_history["goals_against"]
+    )
+
+    grouped = team_history.groupby("team", group_keys=False)
+
+    # shift(1) prevents the current match from being included
+    team_history[f"formPoints{window}"] = grouped["points"].transform(
+        lambda values: (
+            values.shift(1)
+            .rolling(window, min_periods=window)
+            .sum()
+        )
+    )
+
+    team_history[f"formGoalDiff{window}"] = grouped["goalDiff"].transform(
+        lambda values: (
+            values.shift(1)
+            .rolling(window, min_periods=window)
+            .mean()
+        )
+    )
+
+    # Days since the team's previous match
+    team_history["restDays"] = (
+        grouped["date"]
+        .diff()
+        .dt.days
+        .clip(upper=60)
+    )
+
+    home_features = team_history[
+        team_history["side"] == "home"
+    ][
+        [
+            "match_id",
+            f"formPoints{window}",
+            f"formGoalDiff{window}",
+            "restDays",
+        ]
+    ].rename(
+        columns={
+            f"formPoints{window}": f"homeFormPoints{window}",
+            f"formGoalDiff{window}": f"homeFormGoalDiff{window}",
+            "restDays": "homeRestDays",
+        }
+    )
+
+    away_features = team_history[
+        team_history["side"] == "away"
+    ][
+        [
+            "match_id",
+            f"formPoints{window}",
+            f"formGoalDiff{window}",
+            "restDays",
+        ]
+    ].rename(
+        columns={
+            f"formPoints{window}": f"awayFormPoints{window}",
+            f"formGoalDiff{window}": f"awayFormGoalDiff{window}",
+            "restDays": "awayRestDays",
+        }
+    )
+
+    matches = matches.merge(
+        home_features,
+        on="match_id",
+        how="left",
+    )
+
+    matches = matches.merge(
+        away_features,
+        on="match_id",
+        how="left",
+    )
+
+    # Differences make comparison easier for the model
+    matches[f"formPointsDiff{window}"] = (
+        matches[f"homeFormPoints{window}"]
+        - matches[f"awayFormPoints{window}"]
+    )
+
+    matches[f"formGoalDiff{window}"] = (
+        matches[f"homeFormGoalDiff{window}"]
+        - matches[f"awayFormGoalDiff{window}"]
+    )
+
+    matches["restDaysDiff"] = (
+        matches["homeRestDays"]
+        - matches["awayRestDays"]
+    )
+
+    return matches
+
+
 # load elo and parse its messy dates
 elo = pd.read_csv(elo_path)
 elo["date"] = pd.to_datetime(elo["date"], format="mixed")
 
-# find match dates
+# Convert match dates
 results["date"] = pd.to_datetime(results["date"])
+
+# Add features
+results = add_recent_features(results, window=5)
 
 # make 2 small elo tables: one for home teams and one for away teams
 eloHome = elo[["date", "team", "rating"]].rename(columns={"team": "home_team", "rating": "home_elo"})
@@ -124,7 +269,7 @@ print("\nHome-win rate by matchup type:")
 print(df.groupby("eloBucket", observed = True)["result"].apply(lambda x: (x == "home_win").mean()))
 
 
-print("\nmatches with elo:", len(df))
+print("\nNew model features:")
 
 print(
     df[
@@ -132,7 +277,16 @@ print(
             "date",
             "home_team",
             "away_team",
-            "tournament",
+            "eloDiff",
+            "homeFormPoints5",
+            "awayFormPoints5",
+            "formPointsDiff5",
+            "homeFormGoalDiff5",
+            "awayFormGoalDiff5",
+            "formGoalDiff5",
+            "homeRestDays",
+            "awayRestDays",
+            "restDaysDiff",
             "matchType",
             "result",
         ]
