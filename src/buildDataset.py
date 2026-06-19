@@ -200,38 +200,54 @@ def add_recent_features(matches: pd.DataFrame, window: int = 5) -> pd.DataFrame:
     return matches
 
 
-# load elo and parse its messy dates
-elo = pd.read_csv(elo_path)
-elo["date"] = pd.to_datetime(elo["date"], format="mixed")
+def add_elo_ratings(matches, k=30, home_advantage=65, start=1500.0):
+    matches = matches.sort_values("date").reset_index(drop=True).copy()
+    ratings = {}                      
+    home_elos, away_elos = [], []
+
+    for row in matches.itertuples():
+        rh = ratings.get(row.home_team, start)
+        ra = ratings.get(row.away_team, start)
+
+        # record PRE-match ratings (never peek at the result we're predicting)
+        home_elos.append(rh)
+        away_elos.append(ra)
+
+        # home advantage applies only when not on neutral ground
+        adv = 0 if row.neutral else home_advantage
+        expected_home = 1 / (1 + 10 ** ((ra - (rh + adv)) / 400))
+
+        # actual outcome from the home team's perspective
+        if row.home_score > row.away_score:
+            actual_home = 1.0
+        elif row.home_score < row.away_score:
+            actual_home = 0.0
+        else:
+            actual_home = 0.5
+
+        # shift ratings by K x (what happened - what was expected); zero-sum
+        change = k * (actual_home - expected_home)
+        ratings[row.home_team] = rh + change
+        ratings[row.away_team] = ra - change
+
+    matches["home_elo"] = home_elos
+    matches["away_elo"] = away_elos
+    matches["eloDiff"] = matches["home_elo"] - matches["away_elo"]
+    return matches
+
 
 # Convert match dates
 results["date"] = pd.to_datetime(results["date"])
 
-# Add features
+# Add recent-form features (computed over the full history)
 results = add_recent_features(results, window=5)
 
-# make 2 small elo tables: one for home teams and one for away teams
-eloHome = elo[["date", "team", "rating"]].rename(columns={"team": "home_team", "rating": "home_elo"})
-eloAway = elo[["date", "team", "rating"]].rename(columns={"team": "away_team", "rating": "away_elo"})
+results = add_elo_ratings(results)
 
-# sort all tables by date so we can merge them with merge_asof
-results = results.sort_values("date")
-eloHome = eloHome.sort_values("date")
-eloAway = eloAway.sort_values("date")
-
-# merge the elo ratings into the results table, matching on date and team, and using the most recent elo rating before the match
-df = pd.merge_asof(results, eloHome, on="date", by="home_team", direction="backward")
-df = pd.merge_asof(df, eloAway, on="date", by="away_team", direction="backward")
-
-# drop matches where we dont have elo ratings for either team
-df = df.dropna(subset=["home_elo", "away_elo"])
-
-# create a new feature for the difference in elo ratings between the home and away teams
-df["eloDiff"] = df["home_elo"] - df["away_elo"]
+df = results
 
 # Only matches from 2000
 df = df[df["date"] >= "2000-01-01"].copy()
-
 
 # Match context
 important_pattern = (

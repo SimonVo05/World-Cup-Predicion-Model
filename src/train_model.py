@@ -91,8 +91,7 @@ sample_weights = train_data["matchType"].map(match_type_weights).fillna(1.0)
 model2 = Pipeline([
     ("preprocessor", preprocessor),
     ("model", LogisticRegression(
-        max_iter=2000,
-        class_weight="balanced"
+        max_iter=2000
     ))
 ])
 
