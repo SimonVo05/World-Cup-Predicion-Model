@@ -15,6 +15,9 @@ DATASETS = {
 
     "fc26_players":
         "rovnez/fc-26-fifa-26-player-data",
+
+    "world_cup_2026":
+        "mominullptr/fifa-world-cup-2026-dataset",
 }
 
 
