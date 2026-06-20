@@ -205,6 +205,8 @@ def add_elo_ratings(matches, k=30, home_advantage=65, start=1500.0):
     ratings = {}                      
     home_elos, away_elos = [], []
 
+    big_tournaments = ("world cup", "uefa euro", "copa américa", "copa america", "african cup", "asian cup", "gold cup", "nations league", "confederations cup")
+
     for row in matches.itertuples():
         rh = ratings.get(row.home_team, start)
         ra = ratings.get(row.away_team, start)
@@ -224,9 +226,27 @@ def add_elo_ratings(matches, k=30, home_advantage=65, start=1500.0):
             actual_home = 0.0
         else:
             actual_home = 0.5
+        
+        # bigger wins move ratings more
+        margin = abs(row.home_score - row.away_score)
+        if margin <= 1:
+            goal_multiplier = 1.0
+        elif margin == 2:
+            goal_multiplier = 1.5
+        else:
+            goal_multiplier = (11 + margin) / 8
+        
+        # important matches count for more
+        tournament = str(row.tournament).lower()
+        if tournament == "friendly":
+            importance = 0.7
+        elif any(name in tournament for name in big_tournaments):
+            importance = 1.6
+        else:
+            importance = 1.0
 
         # shift ratings by K x (what happened - what was expected); zero-sum
-        change = k * (actual_home - expected_home)
+        change = k * goal_multiplier * importance * (actual_home - expected_home)
         ratings[row.home_team] = rh + change
         ratings[row.away_team] = ra - change
 
