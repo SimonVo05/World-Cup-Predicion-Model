@@ -42,14 +42,7 @@ numeric_features = [
 category_features = [
     "matchType",
 ]
-
 features = numeric_features + category_features
-
-# drop rows with missing values in the selected features
-# data = df.dropna(subset=features)
-#
-# X = data[features]
-# y = data["result"]
 
 # split the data into training and testing sets (date split instead of random split)
 data = df.dropna(subset=features).copy()
@@ -83,50 +76,19 @@ match_type_weights = {
 
 sample_weights = train_data["matchType"].map(match_type_weights).fillna(1.0)
 
-# train a logistic regression model
-# model = LogisticRegression(max_iter=1000)
-# model.fit(X_train, y_train)
-
 # train model with standard scale and LR
-model2 = Pipeline([
+model = Pipeline([
     ("preprocessor", preprocessor),
     ("model", LogisticRegression(
         max_iter=2000
     ))
 ])
 
-model2.fit(X_train, y_train, model__sample_weight=sample_weights)
-
-# # make predictions and evaluate the model
-# predictions = model2.predict(X_test)
-# print("rows used:", len(data))
-# print("accuracy:", accuracy_score(y_test, predictions))
-#
-# print("\nlabels:", list(model2.classes_))
-# print(confusion_matrix(y_test, predictions))
-# print(classification_report(y_test, predictions))
-#
-# # printing coefficients learned
-# trained_model = model2.named_steps["model"]
-#
-# coefficients = pd.DataFrame(
-#     trained_model.coef_,
-#     columns=features,
-#     index=trained_model.classes_
-# )
-#
-# print("\nLearned feature weights:")
-# print(coefficients)
-#
-# sample = X_test.head(5)
-# probs = model2.predict_proba(sample)
-# print("\nSample predictions (columns = ", list(model2.classes_), "):")
-# for row, prob in zip(sample.itertuples(), probs):
-#     print(f"eloDiff={row.eloDiff} -> {prob.round(2)}")
+model.fit(X_train, y_train, model__sample_weight=sample_weights)
 
 
-predictions = model2.predict(X_test)
-probabilities = model2.predict_proba(X_test)
+predictions = model.predict(X_test)
+probabilities = model.predict_proba(X_test)
 
 print("rows used:", len(data))
 print("train rows:", len(train_data))
@@ -141,6 +103,38 @@ print(y_test.value_counts())
 print("\nPredicted result counts:")
 print(pd.Series(predictions).value_counts())
 
-print("\nlabels:", list(model2.named_steps["model"].classes_))
+print("\nlabels:", list(model.named_steps["model"].classes_))
 print(confusion_matrix(y_test, predictions))
 print(classification_report(y_test, predictions, zero_division=0))
+
+
+def show_probabilities(home_team, away_team, input_row):
+    one_match = pd.DataFrame([input_row])
+
+    probs = model.predict_proba(one_match)[0]
+    classes = model.named_steps["model"].classes_
+
+    print(f"\nPrediction: {home_team} vs {away_team}")
+
+    for label, prob in zip(classes, probs):
+        print(f"{label}: {prob * 100:.1f}%")
+
+
+
+portugal_match = {
+    "eloDiff": 180,
+    "formPointsDiff5": 4,
+    "formGoalDiff5": 0.8,
+    "restDaysDiff": 0,
+    "neutral": 1,
+    "absEloDiff": abs(180),
+    "absFormPointsDiff5": abs(4),
+    "absFormGoalDiff5": abs(0.8),
+    "matchType": "important",
+}
+
+show_probabilities(
+    "Portugal",
+    "Uzbekistan",
+    portugal_match
+)
