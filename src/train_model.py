@@ -78,7 +78,7 @@ preprocessor = ColumnTransformer(
 match_type_weights = {
     "friendly": 0.5,
     "regular_international": 1.0,
-    "important": 2,
+    "important": 1.5,
 }
 
 sample_weights = train_data["matchType"].map(match_type_weights).fillna(1.0)
