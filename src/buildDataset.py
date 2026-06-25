@@ -1,6 +1,7 @@
 
 # load results
 from pathlib import Path
+import unicodedata
 
 import pandas as pd
 import numpy as np
@@ -9,6 +10,143 @@ import numpy as np
 # buildDataset.py is inside src, so parents[1] is the project folder
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
+
+def clean_team_name(name):
+    name = str(name).strip()
+
+    replacements = {
+        "USA": "United States",
+        "United States of America": "United States",
+        "Korea Republic": "South Korea",
+        "Czech Republic": "Czechia",
+        "Türkiye": "Turkey",
+        "Ivory Coast": "Côte d'Ivoire",
+        "Bosnia-Herzegovina": "Bosnia and Herzegovina",
+    }
+
+    name = replacements.get(name, name)
+
+    name = unicodedata.normalize("NFKD", name)
+    name = name.encode("ascii", "ignore").decode("ascii")
+    name = name.lower()
+    name = name.replace("&", "and")
+    name = name.replace(".", "")
+    name = name.strip()
+
+    return name
+
+
+def add_fc26_features(matches):
+    fc26_path = RAW_DIR / "fc26_national_team_ratings.csv"
+
+    if not fc26_path.exists():
+        raise FileNotFoundError(f"Could not find FC26 ratings file:\n{fc26_path}")
+
+    fc26 = pd.read_csv(fc26_path)
+
+    rating_cols = [
+        "fc26ATK",
+        "fc26MID",
+        "fc26DEF",
+        "fc26GK",
+        "fc26Top11Avg",
+        "fc26BestPlayer",
+        "fc26PlayerCount",
+    ]
+
+    for col in rating_cols:
+        fc26[col] = pd.to_numeric(fc26[col], errors="coerce")
+
+    fc26["team_key"] = fc26["team"].apply(clean_team_name)
+
+    matches = matches.copy()
+    matches["home_team_key"] = matches["home_team"].apply(clean_team_name)
+    matches["away_team_key"] = matches["away_team"].apply(clean_team_name)
+
+    home_fc26 = fc26[["team_key"] + rating_cols].rename(
+        columns={
+            "team_key": "home_team_key",
+            "fc26ATK": "homeFc26ATK",
+            "fc26MID": "homeFc26MID",
+            "fc26DEF": "homeFc26DEF",
+            "fc26GK": "homeFc26GK",
+            "fc26Top11Avg": "homeFc26Top11Avg",
+            "fc26BestPlayer": "homeFc26BestPlayer",
+            "fc26PlayerCount": "homeFc26PlayerCount",
+        }
+    )
+
+    away_fc26 = fc26[["team_key"] + rating_cols].rename(
+        columns={
+            "team_key": "away_team_key",
+            "fc26ATK": "awayFc26ATK",
+            "fc26MID": "awayFc26MID",
+            "fc26DEF": "awayFc26DEF",
+            "fc26GK": "awayFc26GK",
+            "fc26Top11Avg": "awayFc26Top11Avg",
+            "fc26BestPlayer": "awayFc26BestPlayer",
+            "fc26PlayerCount": "awayFc26PlayerCount",
+        }
+    )
+
+    matches = matches.merge(home_fc26, on="home_team_key", how="left")
+    matches = matches.merge(away_fc26, on="away_team_key", how="left")
+
+    matches["homeFc26Missing"] = matches["homeFc26ATK"].isna().astype(int)
+    matches["awayFc26Missing"] = matches["awayFc26ATK"].isna().astype(int)
+
+    # Fill missing teams with median values so we do not delete too many matches
+    medians = fc26[rating_cols].median()
+
+    for col in rating_cols:
+        home_col = "home" + col[0].upper() + col[1:]
+        away_col = "away" + col[0].upper() + col[1:]
+
+        matches[home_col] = matches[home_col].fillna(medians[col])
+        matches[away_col] = matches[away_col].fillna(medians[col])
+
+    # Overall FC26 differences
+    matches["fc26Top11Diff"] = (
+        matches["homeFc26Top11Avg"] - matches["awayFc26Top11Avg"]
+    )
+
+    matches["fc26ATKDiff"] = matches["homeFc26ATK"] - matches["awayFc26ATK"]
+    matches["fc26MIDDiff"] = matches["homeFc26MID"] - matches["awayFc26MID"]
+    matches["fc26DEFDiff"] = matches["homeFc26DEF"] - matches["awayFc26DEF"]
+    matches["fc26GKDiff"] = matches["homeFc26GK"] - matches["awayFc26GK"]
+
+    # Attack vs defense matchup
+    matches["homeAttackVsAwayDefense"] = (
+        matches["homeFc26ATK"] - matches["awayFc26DEF"]
+    )
+
+    matches["awayAttackVsHomeDefense"] = (
+        matches["awayFc26ATK"] - matches["homeFc26DEF"]
+    )
+
+    matches["attackThreatDiff"] = (
+        matches["homeAttackVsAwayDefense"]
+        - matches["awayAttackVsHomeDefense"]
+    )
+
+    # Underdog attacking threat
+    matches["homeUnderdogAttackThreat"] = np.where(
+        matches["fc26Top11Diff"] < 0,
+        matches["homeAttackVsAwayDefense"],
+        0,
+    )
+
+    matches["awayUnderdogAttackThreat"] = np.where(
+        matches["fc26Top11Diff"] > 0,
+        matches["awayAttackVsHomeDefense"],
+        0,
+    )
+
+    print("\nFC26 ratings added.")
+    print("Home teams missing FC26:", matches["homeFc26Missing"].sum())
+    print("Away teams missing FC26:", matches["awayFc26Missing"].sum())
+
+    return matches
 
 
 def find_csv(folder_name: str, file_name: str) -> Path:
@@ -63,6 +201,11 @@ print(results["result"].value_counts())
 def add_recent_features(matches: pd.DataFrame, window: int = 5) -> pd.DataFrame:
     matches = matches.sort_values("date").reset_index(drop=True).copy()
     matches["match_id"] = matches.index
+
+    matches = matches.drop(
+        columns=["homeRestDays", "awayRestDays", "restDaysDiff"],
+        errors="ignore"
+    )
 
     # One row for each home-team performance
     home_history = pd.DataFrame({
@@ -261,6 +404,7 @@ results["date"] = pd.to_datetime(results["date"])
 
 # Add recent-form features (computed over the full history)
 results = add_recent_features(results, window=5)
+results = add_recent_features(results, window=10)
 
 results = add_elo_ratings(results)
 
@@ -325,11 +469,20 @@ print(
             "restDaysDiff",
             "matchType",
             "result",
+            "homeFormPoints10",
+            "awayFormPoints10",
+            "formPointsDiff10",
+            "homeFormGoalDiff10",
+            "awayFormGoalDiff10",
+            "formGoalDiff10",
         ]
     ].tail(10).to_string(index=False)
 )
 
+df = add_fc26_features(df)
+
 processed_dir = PROJECT_ROOT / "data" / "processed"
 processed_dir.mkdir(parents=True, exist_ok=True)
 df.to_csv(processed_dir / "matches.csv", index=False)
+
 print("\nsaved processed data to", processed_dir / "matches.csv")
