@@ -142,9 +142,9 @@ def add_fc26_features(matches):
         0,
     )
 
-    print("\nFC26 ratings added.")
-    print("Home teams missing FC26:", matches["homeFc26Missing"].sum())
-    print("Away teams missing FC26:", matches["awayFc26Missing"].sum())
+    # print("\nFC26 ratings added.")
+    # print("Home teams missing FC26:", matches["homeFc26Missing"].sum())
+    # print("Away teams missing FC26:", matches["awayFc26Missing"].sum())
 
     return matches
 
@@ -173,8 +173,8 @@ elo_path = find_csv(
     "eloratings.csv",
 )
 
-print("Loading results from:", results_path)
-print("Loading ELO ratings from:", elo_path)
+# print("Loading results from:", results_path)
+# print("Loading ELO ratings from:", elo_path)
 
 results = pd.read_csv(results_path)
 
@@ -193,9 +193,9 @@ def matchResult(row):
 results["result"] = results.apply(matchResult, axis=1)
 
 # print all the result out
-print(results.shape)
-print(results[["date", "home_team", "away_team", "home_score", "away_score", "result"]].head())
-print(results["result"].value_counts())
+# print(results.shape)
+# print(results[["date", "home_team", "away_team", "home_score", "away_score", "result"]].head())
+# print(results["result"].value_counts())
 
 
 def add_recent_features(matches: pd.DataFrame, window: int = 5) -> pd.DataFrame:
@@ -437,47 +437,47 @@ df.loc[
     "matchType"
 ] = "important"
 
-print("\nmatches with elo:", len(df))
-print(df[["date", "home_team", "away_team", "home_elo", "away_elo", "eloDiff", "result"]].tail())
-
-# average eloDiff for each outcome
-print("\naverage eloDiff for each result:")
-print(df.groupby("result")["eloDiff"].mean())
-
-df["eloBucket"] = pd.cut(df["eloDiff"], bins = [-2000, -100, -25, 25, 100, 2000], labels = ["away much stronger", "away stronger", "even", "home stronger", "home much stronger"])
-print("\nHome-win rate by matchup type:")
-print(df.groupby("eloBucket", observed = True)["result"].apply(lambda x: (x == "home_win").mean()))
-
-
-print("\nNew model features:")
-
-print(
-    df[
-        [
-            "date",
-            "home_team",
-            "away_team",
-            "eloDiff",
-            "homeFormPoints5",
-            "awayFormPoints5",
-            "formPointsDiff5",
-            "homeFormGoalDiff5",
-            "awayFormGoalDiff5",
-            "formGoalDiff5",
-            "homeRestDays",
-            "awayRestDays",
-            "restDaysDiff",
-            "matchType",
-            "result",
-            "homeFormPoints10",
-            "awayFormPoints10",
-            "formPointsDiff10",
-            "homeFormGoalDiff10",
-            "awayFormGoalDiff10",
-            "formGoalDiff10",
-        ]
-    ].tail(10).to_string(index=False)
-)
+# print("\nmatches with elo:", len(df))
+# print(df[["date", "home_team", "away_team", "home_elo", "away_elo", "eloDiff", "result"]].tail())
+#
+# # average eloDiff for each outcome
+# print("\naverage eloDiff for each result:")
+# print(df.groupby("result")["eloDiff"].mean())
+#
+# df["eloBucket"] = pd.cut(df["eloDiff"], bins = [-2000, -100, -25, 25, 100, 2000], labels = ["away much stronger", "away stronger", "even", "home stronger", "home much stronger"])
+# print("\nHome-win rate by matchup type:")
+# print(df.groupby("eloBucket", observed = True)["result"].apply(lambda x: (x == "home_win").mean()))
+#
+#
+# print("\nNew model features:")
+#
+# print(
+#     df[
+#         [
+#             "date",
+#             "home_team",
+#             "away_team",
+#             "eloDiff",
+#             "homeFormPoints5",
+#             "awayFormPoints5",
+#             "formPointsDiff5",
+#             "homeFormGoalDiff5",
+#             "awayFormGoalDiff5",
+#             "formGoalDiff5",
+#             "homeRestDays",
+#             "awayRestDays",
+#             "restDaysDiff",
+#             "matchType",
+#             "result",
+#             "homeFormPoints10",
+#             "awayFormPoints10",
+#             "formPointsDiff10",
+#             "homeFormGoalDiff10",
+#             "awayFormGoalDiff10",
+#             "formGoalDiff10",
+#         ]
+#     ].tail(10).to_string(index=False)
+# )
 
 df = add_fc26_features(df)
 
@@ -485,4 +485,4 @@ processed_dir = PROJECT_ROOT / "data" / "processed"
 processed_dir.mkdir(parents=True, exist_ok=True)
 df.to_csv(processed_dir / "matches.csv", index=False)
 
-print("\nsaved processed data to", processed_dir / "matches.csv")
+# print("\nsaved processed data to", processed_dir / "matches.csv")

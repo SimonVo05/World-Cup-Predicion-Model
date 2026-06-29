@@ -1,4 +1,8 @@
 from pathlib import Path
+import unicodedata
+import subprocess
+import sys
+
 
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -186,78 +190,208 @@ def make_demo_match(df, custom_values):
     return demo_row
 
 
+def clean_team_name(name):
+    name = str(name).strip()
+
+    replacements = {
+        "USA": "United States",
+        "United States of America": "United States",
+        "Korea Republic": "South Korea",
+        "Czech Republic": "Czechia",
+        "Türkiye": "Turkey",
+        "Ivory Coast": "Côte d'Ivoire",
+        "Bosnia-Herzegovina": "Bosnia and Herzegovina",
+        "Congo DR": "DR Congo",
+        "China PR": "China",
+        "Cabo Verde": "Cape Verde",
+        "Viet Nam": "Vietnam",
+    }
+
+    name = replacements.get(name, name)
+
+    name = unicodedata.normalize("NFKD", name)
+    name = name.encode("ascii", "ignore").decode("ascii")
+    name = name.lower()
+    name = name.replace("&", "and")
+    name = name.replace(".", "")
+    name = name.strip()
+
+    return name
+
+
+def get_latest_team_snapshot(df, team_name, match_date):
+    team_key = clean_team_name(team_name)
+
+    df = df.copy()
+    df["home_key"] = df["home_team"].apply(clean_team_name)
+    df["away_key"] = df["away_team"].apply(clean_team_name)
+
+    team_matches = df[
+        (df["home_key"] == team_key) |
+        (df["away_key"] == team_key)
+    ].sort_values("date")
+
+    if team_matches.empty:
+        raise ValueError(f"Could not find team in matches.csv: {team_name}")
+
+    last_match = team_matches.iloc[-1]
+
+    if clean_team_name(last_match["home_team"]) == team_key:
+        side = "home"
+    else:
+        side = "away"
+
+    rest_days = (match_date - last_match["date"]).days
+    rest_days = max(0, min(rest_days, 60))
+
+    return {
+        "elo": last_match[f"{side}_elo"],
+
+        "formPoints5": last_match[f"{side}FormPoints5"],
+        "formGoalDiff5": last_match[f"{side}FormGoalDiff5"],
+
+        "formPoints10": last_match[f"{side}FormPoints10"],
+        "formGoalDiff10": last_match[f"{side}FormGoalDiff10"],
+
+        "restDays": rest_days,
+
+        "fc26ATK": last_match[f"{side}Fc26ATK"],
+        "fc26MID": last_match[f"{side}Fc26MID"],
+        "fc26DEF": last_match[f"{side}Fc26DEF"],
+        "fc26GK": last_match[f"{side}Fc26GK"],
+        "fc26Top11Avg": last_match[f"{side}Fc26Top11Avg"],
+        "fc26Missing": last_match[f"{side}Fc26Missing"],
+    }
+
+
+def build_match_input(
+    df,
+    home_team,
+    away_team,
+    match_type="important",
+    neutral=1,
+    match_date=None,
+):
+    if match_date is None:
+        match_date = df["date"].max() + pd.Timedelta(days=1)
+    else:
+        match_date = pd.to_datetime(match_date)
+
+    home = get_latest_team_snapshot(df, home_team, match_date)
+    away = get_latest_team_snapshot(df, away_team, match_date)
+
+    row = {
+        "eloDiff": home["elo"] - away["elo"],
+        "absEloDiff": abs(home["elo"] - away["elo"]),
+
+        "homeFormPoints5": home["formPoints5"],
+        "awayFormPoints5": away["formPoints5"],
+        "formPointsDiff5": home["formPoints5"] - away["formPoints5"],
+        "absFormPointsDiff5": abs(home["formPoints5"] - away["formPoints5"]),
+
+        "homeFormGoalDiff5": home["formGoalDiff5"],
+        "awayFormGoalDiff5": away["formGoalDiff5"],
+        "formGoalDiff5": home["formGoalDiff5"] - away["formGoalDiff5"],
+        "absFormGoalDiff5": abs(home["formGoalDiff5"] - away["formGoalDiff5"]),
+
+        "homeFormPoints10": home["formPoints10"],
+        "awayFormPoints10": away["formPoints10"],
+        "formPointsDiff10": home["formPoints10"] - away["formPoints10"],
+        "absFormPointsDiff10": abs(home["formPoints10"] - away["formPoints10"]),
+
+        "homeFormGoalDiff10": home["formGoalDiff10"],
+        "awayFormGoalDiff10": away["formGoalDiff10"],
+        "formGoalDiff10": home["formGoalDiff10"] - away["formGoalDiff10"],
+        "absFormGoalDiff10": abs(home["formGoalDiff10"] - away["formGoalDiff10"]),
+
+        "homeRestDays": home["restDays"],
+        "awayRestDays": away["restDays"],
+        "restDaysDiff": home["restDays"] - away["restDays"],
+        "neutral": neutral,
+
+        "homeFc26ATK": home["fc26ATK"],
+        "awayFc26ATK": away["fc26ATK"],
+        "homeFc26MID": home["fc26MID"],
+        "awayFc26MID": away["fc26MID"],
+        "homeFc26DEF": home["fc26DEF"],
+        "awayFc26DEF": away["fc26DEF"],
+        "homeFc26GK": home["fc26GK"],
+        "awayFc26GK": away["fc26GK"],
+
+        "fc26Top11Diff": home["fc26Top11Avg"] - away["fc26Top11Avg"],
+        "fc26ATKDiff": home["fc26ATK"] - away["fc26ATK"],
+        "fc26MIDDiff": home["fc26MID"] - away["fc26MID"],
+        "fc26DEFDiff": home["fc26DEF"] - away["fc26DEF"],
+        "fc26GKDiff": home["fc26GK"] - away["fc26GK"],
+
+        "homeAttackVsAwayDefense": home["fc26ATK"] - away["fc26DEF"],
+        "awayAttackVsHomeDefense": away["fc26ATK"] - home["fc26DEF"],
+        "attackThreatDiff": (
+            home["fc26ATK"] - away["fc26DEF"]
+        ) - (
+            away["fc26ATK"] - home["fc26DEF"]
+        ),
+
+        "homeFc26Missing": home["fc26Missing"],
+        "awayFc26Missing": away["fc26Missing"],
+
+        "matchType": match_type,
+    }
+
+    if row["fc26Top11Diff"] < 0:
+        row["homeUnderdogAttackThreat"] = row["homeAttackVsAwayDefense"]
+    else:
+        row["homeUnderdogAttackThreat"] = 0
+
+    if row["fc26Top11Diff"] > 0:
+        row["awayUnderdogAttackThreat"] = row["awayAttackVsHomeDefense"]
+    else:
+        row["awayUnderdogAttackThreat"] = 0
+
+    # Backup fill, just in case one value is missing
+    for col in numeric_features:
+        if col not in row or pd.isna(row[col]):
+            row[col] = df[col].median()
+
+    return row
+
+
+def rebuild_dataset():
+    build_script = PROJECT_ROOT / "src" / "buildDataset.py"
+
+    print("Rebuilding dataset...")
+    subprocess.run(
+        [sys.executable, str(build_script)],
+        cwd=PROJECT_ROOT,
+        check=True,
+    )
+
+
 def main():
+    rebuild_dataset()
+
     df = load_data()
     model, accuracy = train_model(df)
 
     print(f"Model accuracy: {accuracy:.3f}")
 
-    portugal_match = make_demo_match(
+    #Predict
+    home = "Japan"
+    away = "Brazil"
+
+    match_row = build_match_input(
         df,
-        {
-            "eloDiff": 180,
-            "absEloDiff": abs(180),
-
-            "homeFormPoints5": 10,
-            "awayFormPoints5": 6,
-            "formPointsDiff5": 10 - 6,
-            "absFormPointsDiff5": abs(10 - 6),
-
-            "homeFormGoalDiff5": 1.2,
-            "awayFormGoalDiff5": 0.4,
-            "formGoalDiff5": 1.2 - 0.4,
-            "absFormGoalDiff5": abs(1.2 - 0.4),
-
-            "homeFormPoints10": 20,
-            "awayFormPoints10": 13,
-            "formPointsDiff10": 20 - 13,
-            "absFormPointsDiff10": abs(20 - 13),
-
-            "homeFormGoalDiff10": 1.0,
-            "awayFormGoalDiff10": 0.3,
-            "formGoalDiff10": 1.0 - 0.3,
-            "absFormGoalDiff10": abs(1.0 - 0.3),
-
-            "homeRestDays": 5,
-            "awayRestDays": 5,
-            "restDaysDiff": 0,
-            "neutral": 1,
-
-            # Example FC26 values
-            "homeFc26ATK": 84,
-            "awayFc26ATK": 70,
-            "homeFc26MID": 86,
-            "awayFc26MID": 67,
-            "homeFc26DEF": 84,
-            "awayFc26DEF": 71,
-            "homeFc26GK": 82,
-            "awayFc26GK": 70,
-
-            "fc26Top11Diff": 14,
-            "fc26ATKDiff": 84 - 70,
-            "fc26MIDDiff": 86 - 67,
-            "fc26DEFDiff": 84 - 71,
-            "fc26GKDiff": 82 - 70,
-
-            "homeAttackVsAwayDefense": 84 - 71,
-            "awayAttackVsHomeDefense": 70 - 84,
-            "attackThreatDiff": (84 - 71) - (70 - 84),
-
-            "homeUnderdogAttackThreat": 0,
-            "awayUnderdogAttackThreat": 0,
-
-            "homeFc26Missing": 0,
-            "awayFc26Missing": 0,
-
-            "matchType": "important",
-        }
+        home_team=home,
+        away_team=away,
+        match_type="important",
+        neutral=1,
     )
 
     predict_match(
         model,
-        "Portugal",
-        "Uzbekistan",
-        portugal_match,
+        home,
+        away,
+        match_row,
     )
 
 
