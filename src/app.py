@@ -1,8 +1,11 @@
 import sys
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # let this file import simulate.py (same folder)
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -28,6 +31,12 @@ def get_model():
     return train_match_model()
 
 
+@st.cache_data
+def load_odds():
+    path = PROJECT_ROOT / "data" / "processed" / "championship_odds.csv"
+    return pd.read_csv(path) if path.exists() else None
+
+
 teams_df, elo = get_data()
 model = get_model()
 
@@ -39,6 +48,32 @@ st.caption(
     "Match-outcome probabilities from an Elo-based model trained on ~25,000 "
     "international matches. Probabilities are odds, not certainties."
 )
+
+# ---------------- Championship odds ----------------
+st.header("Who wins the World Cup?")
+
+odds = load_odds()
+if odds is None:
+    st.info("Run `python src/run_simulation.py` to generate championship odds.")
+else:
+    top_n = st.slider("Teams to show", 5, len(odds), 15)
+    data = odds.head(top_n).copy()
+    data["label"] = (data["champion_pct"] * 100).round(1).astype(str) + "%"
+
+    bars = (
+        alt.Chart(data)
+        .mark_bar(color="#1a7f37")
+        .encode(
+            x=alt.X("champion_pct:Q", title="Chance to win the tournament",
+                    axis=alt.Axis(format="%")),
+            y=alt.Y("team:N", sort="-x", title=None),
+            tooltip=["team", alt.Tooltip("champion_pct:Q", format=".1%")],
+        )
+    )
+    labels = bars.mark_text(align="left", dx=3, color="#333").encode(text="label:N")
+    st.altair_chart(bars + labels, use_container_width=True)
+    st.caption("Based on 10,000 simulated tournaments. "
+               "Re-run src/run_simulation.py after changing the model to refresh.")
 
 # ---------------- Match predictor ----------------
 st.header("Match predictor")

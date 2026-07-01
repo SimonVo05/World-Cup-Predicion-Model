@@ -1,6 +1,9 @@
 from pathlib import Path
+from collections import Counter
 import glob
+import random
 
+import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
@@ -90,6 +93,111 @@ def predict_match(model, elo, team_a, team_b) -> dict:
         "draw": draw / total,
         "team_b_win": b_win / total,
     }
+
+#  Tournament simulation
+def make_prob_function(model):
+    # Fast eloDiff -> {away_win, draw, home_win} using the trained logistic
+    # weights directly (much faster than model.predict_proba in a big loop).
+    classes = list(model.classes_)
+    coef = model.coef_.flatten()
+    intercept = np.asarray(model.intercept_)
+
+    def prob(elo_diff):
+        z = coef * elo_diff + intercept
+        z = z - z.max()
+        e = np.exp(z)
+        p = e / e.sum()
+        return dict(zip(classes, p))
+
+    return prob
+
+
+def precompute_matrix(prob_fn, elo, teams) -> dict:
+    # For every ordered pair, the symmetric neutral-venue probabilities
+    # (team_a win, draw, team_b win). Precomputing makes the sim fast.
+    matrix = {}
+    for a in teams:
+        for b in teams:
+            if a == b:
+                continue
+            p1 = prob_fn(elo[a] - elo[b])
+            p2 = prob_fn(elo[b] - elo[a])
+            a_win = (p1["home_win"] + p2["away_win"]) / 2
+            b_win = (p1["away_win"] + p2["home_win"]) / 2
+            draw = (p1["draw"] + p2["draw"]) / 2
+            t = a_win + draw + b_win
+            matrix[(a, b)] = (a_win / t, draw / t, b_win / t)
+    return matrix
+
+
+def load_groups(teams_df, elo) -> dict:
+    # {group_letter: [team, team, team, team]} for teams that have an Elo.
+    groups = {}
+    for letter, sub in teams_df.groupby("group"):
+        groups[letter] = [t for t in sub["team"] if t in elo]
+    return groups
+
+
+def simulate_group(matrix, teams, rng) -> list:
+    # Round-robin: every team plays every other once. Returns [(team, points)]
+    # ranked best-first (points, then a random tiebreak).
+    points = {t: 0 for t in teams}
+    for i in range(len(teams)):
+        for j in range(i + 1, len(teams)):
+            a, b = teams[i], teams[j]
+            p_a, p_draw, _ = matrix[(a, b)]
+            r = rng.random()
+            if r < p_a:
+                points[a] += 3
+            elif r < p_a + p_draw:
+                points[a] += 1
+                points[b] += 1
+            else:
+                points[b] += 3
+    ranked = sorted(teams, key=lambda t: (points[t], rng.random()), reverse=True)
+    return [(t, points[t]) for t in ranked]
+
+
+def simulate_knockouts(matrix, qualifiers, rng) -> str:
+    # Single elimination. Draws can't stand in knockouts, so we drop the draw
+    # probability and split it by relative strength (penalty-shootout proxy).
+    bracket = qualifiers[:]
+    rng.shuffle(bracket)
+    while len(bracket) > 1:
+        next_round = []
+        for i in range(0, len(bracket), 2):
+            a, b = bracket[i], bracket[i + 1]
+            p_a, _, p_b = matrix[(a, b)]
+            next_round.append(a if rng.random() < p_a / (p_a + p_b) else b)
+        bracket = next_round
+    return bracket[0]
+
+
+def run_tournament(matrix, groups, n=10000, seed=0) -> pd.DataFrame:
+    # Play the whole World Cup n times; return each team's championship odds.
+    rng = random.Random(seed)
+    champions = Counter()
+
+    for _ in range(n):
+        firsts_seconds, thirds = [], []
+        for teams in groups.values():
+            ranked = simulate_group(matrix, teams, rng)
+            firsts_seconds.append(ranked[0][0])
+            firsts_seconds.append(ranked[1][0])
+            thirds.append(ranked[2])                       # (team, points)
+
+        # 48-team format: 12 group winners + 12 runners-up + 8 best 3rd-placed
+        best_thirds = [t for t, _ in sorted(
+            thirds, key=lambda x: (x[1], rng.random()), reverse=True)[:8]]
+        qualifiers = firsts_seconds + best_thirds          # 32 teams
+
+        champions[simulate_knockouts(matrix, qualifiers, rng)] += 1
+
+    odds = (pd.DataFrame({"team": list(champions), "champion_pct": list(champions.values())})
+            .assign(champion_pct=lambda d: d["champion_pct"] / n)
+            .sort_values("champion_pct", ascending=False)
+            .reset_index(drop=True))
+    return odds
 
 
 def main() -> None:
